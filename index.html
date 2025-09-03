@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="sv">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Telefonbok</title>
+  <style>
+    :root{ --bg:#f6f7f9; --card:#fff; --ink:#111; --muted:#6b7280; --line:#e5e7eb; --accent:#111; --danger:#b91c1c; }
+    *{ box-sizing:border-box; }
+    body{ margin:0; font:16px/1.5 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; color:var(--ink); background:var(--bg); }
+    .container{ max-width:1000px; margin:0 auto; padding:16px; }
+    .card{ background:var(--card); border:1px solid var(--line); border-radius:16px; box-shadow:0 1px 2px rgba(0,0,0,.03); }
+    header{ position:sticky; top:0; z-index:10; backdrop-filter:saturate(1.1) blur(6px); background:rgba(255,255,255,.7); border-bottom:1px solid var(--line); }
+    header .wrap{ max-width:1000px; margin:0 auto; display:flex; gap:12px; align-items:center; padding:10px 16px; }
+    h1{ font-size:18px; margin:0; }
+    input, textarea, button{ font:inherit; }
+    input[type="text"], input[type="email"], textarea{ width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:12px; }
+    .muted{ color:var(--muted); }
+    .row{ display:flex; gap:8px; flex-wrap:wrap; }
+    .grow{ flex:1 1 240px; }
+    .btn{ appearance:none; border:1px solid var(--line); background:#fff; padding:8px 12px; border-radius:12px; cursor:pointer; }
+    .btn.primary{ background:var(--accent); color:#fff; border-color:var(--accent); }
+    .btn.danger{ border-color:#fecaca; color:var(--danger); background:#fff5f5; }
+    .toolbar{ display:flex; gap:8px; align-items:center; }
+    table{ width:100%; border-collapse:collapse; }
+    th, td{ text-align:left; padding:10px 12px; border-bottom:1px solid var(--line); vertical-align:top; }
+    th{ color:var(--muted); font-weight:600; }
+    tr:hover{ background:#fafafa; }
+    dialog{ border:none; border-radius:16px; width:min(680px, 90vw); padding:0; }
+    .modal{ padding:16px; }
+    .right{ text-align:right; }
+    @media (max-width:700px){
+      table thead{ display:none; }
+      table, tbody, tr, td{ display:block; width:100%; }
+      tr{ border:1px solid var(--line); border-radius:12px; margin:10px 0; padding:8px; background:#fff; }
+      td{ border:none; padding:6px 0; }
+      td[data-label]::before{ content:attr(data-label)": "; color:var(--muted); font-weight:500; }
+      .right{ text-align:left; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap">
+      <h1>Telefonbok</h1>
+      <div class="toolbar" style="margin-left:auto">
+        <button class="btn primary" id="btn-new">Ny kontakt</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="container">
+    <div class="card" style="padding:12px 12px 6px 12px; margin:12px 0 16px 0;">
+      <div class="row">
+        <div class="grow"><input id="q" type="text" placeholder="Sök (företag, namn, telefon, e‑post, kommentar)" /></div>
+        <div style="flex:0 0 200px"><input id="token" type="text" placeholder="Delningsnyckel (valfritt)" /></div>
+        <div><button class="btn" id="btn-refresh">Uppdatera</button></div>
+      </div>
+      <p class="muted" style="margin:8px 4px 4px 4px">Alla fält är frivilliga. Klicka på nummer/e‑post för att ringa/skicka.</p>
+    </div>
+
+    <div class="card" style="overflow:auto;">
+      <table>
+        <thead>
+          <tr>
+            <th>Företag</th><th>Namn</th><th>Telefon</th><th>E‑post</th><th>Kommentar</th><th class="right">Åtgärd</th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </main>
+
+  <!-- Modal -->
+  <dialog id="dlg">
+    <form method="dialog" class="modal">
+      <h3 id="dlg-title" style="margin:0 0 8px 0;">Ny kontakt</h3>
+      <input type="hidden" id="f-id" />
+      <div class="row">
+        <div class="grow"><label class="muted">Företag</label><input id="f-company" type="text" /></div>
+        <div class="grow"><label class="muted">Namn</label><input id="f-name" type="text" /></div>
+      </div>
+      <div class="row">
+        <div class="grow"><label class="muted">Telefon</label><input id="f-phone" type="text" inputmode="tel" /></div>
+        <div class="grow"><label class="muted">E‑post</label><input id="f-email" type="email" /></div>
+      </div>
+      <div style="margin-top:8px"><label class="muted">Kommentar</label><textarea id="f-note" rows="3"></textarea></div>
+      <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:12px;">
+        <button class="btn" value="cancel">Avbryt</button>
+        <button class="btn primary" id="btn-save" value="default">Spara</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script>
+    const API = 'YOUR_WEB_APP_URL_HERE'; // t.ex. https://script.google.com/macros/s/XXXX/exec
+
+    const el = (id) => document.getElementById(id);
+    const rowsEl = el('rows');
+    const dlg = el('dlg');
+    const q = el('q');
+    const tokenInput = el('token');
+
+    const state = { items: [], edit: null };
+
+    async function list(){
+      const res = await fetch(API + '?t=' + Date.now()); // cache buster
+      const data = await res.json();
+      state.items = Array.isArray(data.items) ? data.items : [];
+      render();
+    }
+
+    async function post(action, payload){
+      const body = JSON.stringify({ action, ...payload, token: tokenInput.value || undefined });
+      const res = await fetch(API, { method:'POST', headers:{ 'Content-Type':'text/plain;charset=utf-8' }, body });
+      const data = await res.json().catch(() => ({}));
+      if (data && data.error){ alert(data.error); }
+      return data;
+    }
+
+    function escapeHtml(s){
+      return (s||'').toString()
+        .replace(/&/g,'&amp;')
+        .replace(/</g,'&lt;')
+        .replace(/>/g,'&gt;')
+        .replace(/"/g,'&quot;')
+        .replace(/'/g,'&#39;');
+    }
+    function encode(s){ return encodeURIComponent((s||'').toString()); }
+
+    function render(){
+      const term = (q.value||'').trim().toLowerCase();
+      const items = !term ? state.items : state.items.filter(c => [c.company,c.name,c.phone,c.email,c.note].some(v => (v||'').toLowerCase().includes(term)));
+      rowsEl.innerHTML = '';
+      if (items.length === 0){
+        rowsEl.innerHTML = '<tr><td colspan="6" class="muted">Inga kontakter ännu.</td></tr>';
+        return;
+      }
+      for (const c of items){
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td data-label="Företag">${escapeHtml(c.company)}</td>
+          <td data-label="Namn">${escapeHtml(c.name)}</td>
+          <td data-label="Telefon">${c.phone ? `<a href="tel:${encode(c.phone)}">${escapeHtml(c.phone)}</a>` : '<span class="muted">—</span>'}</td>
+          <td data-label="E‑post">${c.email ? `<a href="mailto:${encode(c.email)}">${escapeHtml(c.email)}</a>` : '<span class="muted">—</span>'}</td>
+          <td data-label="Kommentar">${c.note ? `<span title="${escapeHtml(c.note)}">${escapeHtml(c.note)}</span>` : '<span class="muted">—</span>'}</td>
+          <td class="right">` +
+            `<button class="btn" data-act="edit" data-id="${c.id}">Redigera</button> ` +
+            `<button class="btn danger" data-act="del" data-id="${c.id}">Ta bort</button>` +
+          `</td>`;
+        rowsEl.appendChild(tr);
+      }
+    }
+
+    rowsEl.addEventListener('click', async (e) => {
+      const btn = e.target.closest('button');
+      if (!btn) return;
+      const id = btn.getAttribute('data-id');
+      const act = btn.getAttribute('data-act');
+      if (act === 'edit'){
+        const c = state.items.find(x => x.id === id);
+        if (!c) return;
+        state.edit = c;
+        el('dlg-title').textContent = 'Redigera kontakt';
+        el('f-id').value = c.id; el('f-company').value = c.company||''; el('f-name').value = c.name||''; el('f-phone').value = c.phone||''; el('f-email').value = c.email||''; el('f-note').value = c.note||'';
+        dlg.showModal();
+      }
+      if (act === 'del'){
+        if (!confirm('Ta bort kontakten?')) return;
+        await post('delete', { id });
+        await list();
+      }
+    });
+
+    el('btn-new').addEventListener('click', () => {
+      state.edit = null;
+      el('dlg-title').textContent = 'Ny kontakt';
+      el('f-id').value = ''; el('f-company').value = ''; el('f-name').value = ''; el('f-phone').value = ''; el('f-email').value = ''; el('f-note').value = '';
+      dlg.showModal();
+    });
+
+    el('btn-refresh').addEventListener('click', list);
+    q.addEventListener('input', render);
+
+    el('btn-save').addEventListener('click', async (ev) => {
+      ev.preventDefault();
+      const payload = {
+        company: el('f-company').value.trim() || '',
+        name: el('f-name').value.trim() || '',
+        phone: el('f-phone').value.trim() || '',
+        email: el('f-email').value.trim() || '',
+        note: el('f-note').value.trim() || ''
+      };
+      const id = el('f-id').value;
+      if (id){ await post('update', { id, ...payload }); }
+      else { await post('add', payload); }
+      dlg.close();
+      await list();
+    });
+
+    // första laddning
+    list();
+  </script>
+</body>
+</html>
