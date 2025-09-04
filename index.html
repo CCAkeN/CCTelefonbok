@@ -128,6 +128,15 @@
     }
     function encode(s){ return encodeURIComponent((s||'').toString()); }
 
+    // NEW: Bygg en korrekt tel:-länk. Tillåt "+" och omvandle "00" -> "+"
+    function telHref(raw){
+      if (!raw) return '';
+      let s = String(raw).trim();
+      if (s.startsWith('00')) s = '+' + s.slice(2);   // 00 -> + 
+      s = s.replace(/[^+\d]/g, '');                  // behåll bara + och siffror
+      return 'tel:' + s;                              // ex: tel:+46701234567
+    }
+
     function render(){
       const term = (q.value||'').trim().toLowerCase();
       const items = !term ? state.items : state.items.filter(c => [c.company,c.name,c.phone,c.email,c.note].some(v => (v||'').toLowerCase().includes(term)));
@@ -141,7 +150,7 @@
         tr.innerHTML = `
           <td data-label="Företag">${escapeHtml(c.company)}</td>
           <td data-label="Namn">${escapeHtml(c.name)}</td>
-          <td data-label="Telefon">${c.phone ? `<a href="tel:${encode(c.phone)}">${escapeHtml(c.phone)}</a>` : '<span class="muted">—</span>'}</td>
+          <td data-label="Telefon">${c.phone ? `<a href="${telHref(c.phone)}">${escapeHtml(c.phone)}</a>` : '<span class="muted">—</span>'}</td>
           <td data-label="E‑post">${c.email ? `<a href="mailto:${encode(c.email)}">${escapeHtml(c.email)}</a>` : '<span class="muted">—</span>'}</td>
           <td data-label="Kommentar">${c.note ? `<span title="${escapeHtml(c.note)}">${escapeHtml(c.note)}</span>` : '<span class="muted">—</span>'}</td>
           <td class="right">` +
